@@ -49,6 +49,7 @@
   nav.days .chip, nav.cats .chip { white-space: nowrap; text-decoration: none; }
   nav.days .chip b { font-weight: 600; }
   nav.days .chip.today:not(.active) { border-color: var(--accent); }
+  nav.days .chip.ready:not(.active)::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--good); }
   nav.days .sep { flex: 0 0 1px; background: var(--line); margin: 4px 4px; }
   nav.cats .chip b { color: var(--muted); font-weight: 500; }
   nav.cats .chip.prio { border-color: var(--accent); }
@@ -173,6 +174,7 @@
     <fieldset>
       <legend>Anzeige</legend>
       <label><input type="checkbox" name="hideShop"> Teleshopping &amp; Erotik ausblenden</label>
+      <label><input type="checkbox" name="prefetch"> Vergangene Tage im Hintergrund vorladen (ca. 3–4 MB pro Tag, danach sofort verfügbar)</label>
     </fieldset>
     <div class="actions">
       <button type="button" class="icon-btn" id="settingsCancel">Abbrechen</button>
@@ -395,7 +397,7 @@ const REPLAY_DAYS = 7;
 const DAY_START_HOUR = 5;          // Fernsehtag: 05:00 bis 05:00
 const BATCH = 12;                  // Sender pro Anfrage
 const LS_SETTINGS = "tvr:settings";
-const LS_DAY = "tvr:day3:";        // bei Änderungen an der Einteilung erhöhen
+const CACHE_VERSION = "v3";        // bei Änderungen an der Einteilung erhöhen → Zwischenspeicher wird neu aufgebaut
 
 /* ---------- Zustand ---------- */
 const store = {
@@ -404,8 +406,8 @@ const store = {
   del(k) { try { localStorage.removeItem(k); } catch {} },
   keys() { try { return Object.keys(localStorage); } catch { return []; } },
 };
-let settings = Object.assign({ langs: ["de"], hideShop: true }, store.get(LS_SETTINGS) || {});
-const dayData = new Map();         // "YYYY-MM-DD" → Liste der Ausstrahlungen
+let settings = Object.assign({ langs: ["de"], hideShop: true, prefetch: true }, store.get(LS_SETTINGS) || {});
+const dayData = new Map();         // "YYYY-MM-DD" → { sig, t, list: Ausstrahlungen }
 let airings = [];
 const view = { day: 0, platform: "all", type: "all", q: "" };   // day: 0 = heute … 7, "week" = alle
 let loadToken = 0;
@@ -461,42 +463,104 @@ async function pool(list, n, fn, onTick) {
   return out;
 }
 
+/* ---------- Zwischenspeicher (IndexedDB, bleibt auch nach dem Schliessen erhalten) ---------- */
+const idb = (() => {
+  let dbp = null;
+  const open = () => dbp || (dbp = new Promise(res => {
+    try {
+      const r = indexedDB.open("tv-replay", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("days");
+      r.onsuccess = () => res(r.result);
+      r.onerror = r.onblocked = () => res(null);
+    } catch { res(null); }
+  }));
+  const tx = async (mode, fn) => {
+    const db = await open(); if (!db) return null;
+    return new Promise(res => {
+      try {
+        const t = db.transaction("days", mode), req = fn(t.objectStore("days"));
+        t.oncomplete = () => res(req?.result ?? null);
+        t.onerror = t.onabort = () => res(null);
+      } catch { res(null); }
+    });
+  };
+  return {
+    get: k => tx("readonly", st => st.get(k)),
+    set: (k, v) => tx("readwrite", st => st.put(v, k)),
+    del: k => tx("readwrite", st => st.delete(k)),
+    keys: () => tx("readonly", st => st.getAllKeys()),
+  };
+})();
+
 /* ---------- Daten laden ---------- */
-function cacheKeyFor(day) { return LS_DAY + day.key; }
-function channelSig() { return activeChannels().map(c => c.id).join(","); }
+const cacheKeyFor = day => CACHE_VERSION + ":" + day.key;
+const channelSig = () => activeChannels().map(c => c.id).join(",");
+const inflight = new Map();
 
-async function loadDay(day, onTick) {
-  if (dayData.has(day.key)) return dayData.get(day.key);
-  const cached = store.get(cacheKeyFor(day));
-  const now = Date.now();
-  // Vergangene Tage ändern sich kaum (24 h gültig), der laufende Tag 30 Min.
-  const maxAge = day.end < now ? 24 * 3600e3 : 30 * 60e3;
-  if (cached && cached.sig === channelSig() && now - cached.t < maxAge) {
-    dayData.set(day.key, cached.list); return cached.list;
-  }
-  const chans = activeChannels();
-  const batches = [];
-  for (let i = 0; i < chans.length; i += BATCH) batches.push(chans.slice(i, i + BATCH));
-  const results = await pool(batches, 4, async b => {
-    const url = `${API}/catalog/tv/channels/list/(ids=${b.map(c => c.id).join(",")};start=${utcStamp(day.start)};end=${utcStamp(day.end)};level=normal)`;
-    return parse(await fetchJson(url), day);
-  }, onTick);
-  const list = results.flat();
-  dayData.set(day.key, list);
-  saveDay(day, list);
-  return list;
+// Ein Tag, der vollständig vorbei ist (und danach geladen wurde), ändert sich nicht mehr →
+// unbegrenzt gültig. Der laufende Tag wird nach 30 Minuten neu geladen.
+function isFresh(day, entry) {
+  if (!entry || entry.sig !== channelSig()) return false;
+  if (entry.t > day.end + 3600e3) return true;
+  return Date.now() - entry.t < 30 * 60e3;
+}
+async function cachedDay(day) {
+  const mem = dayData.get(day.key);
+  if (isFresh(day, mem)) return mem;
+  const stored = await idb.get(cacheKeyFor(day));
+  if (isFresh(day, stored)) { dayData.set(day.key, stored); return stored; }
+  return null;
 }
 
-function saveDay(day, list) {
-  const v = { sig: channelSig(), t: Date.now(), list };
-  if (store.set(cacheKeyFor(day), v)) return;
-  // Speicher voll → andere Tage aus dem Zwischenspeicher entfernen und nochmals versuchen
-  for (const k of store.keys()) if (k.startsWith(LS_DAY) && k !== cacheKeyFor(day)) store.del(k);
-  store.set(cacheKeyFor(day), v);
+function loadDay(day, onTick, parallel = 6) {
+  const key = day.key + "|" + channelSig();
+  if (inflight.has(key)) return inflight.get(key);
+  const p = (async () => {
+    const hit = await cachedDay(day);
+    if (hit) return hit.list;
+    const chans = activeChannels();
+    const batches = [];
+    for (let i = 0; i < chans.length; i += BATCH) batches.push(chans.slice(i, i + BATCH));
+    const results = await pool(batches, parallel, async b => {
+      const url = `${API}/catalog/tv/channels/list/(ids=${b.map(c => c.id).join(",")};start=${utcStamp(day.start)};end=${utcStamp(day.end)};level=normal)`;
+      return parse(await fetchJson(url), day);
+    }, onTick);
+    const entry = { sig: channelSig(), t: Date.now(), list: results.flat() };
+    dayData.set(day.key, entry);
+    idb.set(cacheKeyFor(day), entry);
+    markReadyDays();
+    return entry.list;
+  })();
+  inflight.set(key, p);
+  p.finally(() => inflight.delete(key)).catch(() => {});
+  return p;
 }
-function pruneCache() {
-  const keep = new Set(Array.from({ length: REPLAY_DAYS + 1 }, (_, i) => LS_DAY + tvDay(i).key));
-  for (const k of store.keys()) if ((k.startsWith(LS_DAY) && !keep.has(k)) || (k.startsWith("tvr:day") && !k.startsWith(LS_DAY))) store.del(k);
+
+async function pruneCache() {
+  const keep = new Set(Array.from({ length: REPLAY_DAYS + 1 }, (_, i) => cacheKeyFor(tvDay(i))));
+  for (const k of (await idb.keys()) || []) if (!keep.has(k)) idb.del(k);
+  for (const k of store.keys()) if (k.startsWith("tvr:day")) store.del(k);   // alter Speicher früherer Versionen
+}
+
+// Vergangene Tage still im Hintergrund vorladen, damit sie beim Antippen sofort da sind
+let prefetching = false;
+async function prefetchPast() {
+  if (prefetching || !settings.prefetch || navigator.connection?.saveData) return;
+  prefetching = true;
+  try {
+    for (let i = 1; i <= REPLAY_DAYS; i++) {
+      const d = tvDay(i);
+      if (await cachedDay(d)) continue;
+      await new Promise(r => setTimeout(r, 300));
+      try { await loadDay(d, null, 3); } catch { break; }
+    }
+  } finally { prefetching = false; markReadyDays(); }
+}
+function markReadyDays() {
+  document.querySelectorAll("#dayNav [data-day]").forEach(c => {
+    const i = c.dataset.day;
+    c.classList.toggle("ready", i !== "week" && isFresh(tvDay(Number(i)), dayData.get(tvDay(Number(i)).key)));
+  });
 }
 
 function parse(json, day) {
@@ -587,25 +651,20 @@ const imgUrl = (p, big) => p ? `${IMG}${p}_${big ? "w1920" : "w300"}.webp` : nul
 
 async function load(force = false) {
   const token = ++loadToken;
-  pruneCache();
-  if (force) {
-    dayData.clear();
-    for (const k of store.keys()) if (k.startsWith(LS_DAY) && (view.day === "week" || k === LS_DAY + tvDay(view.day).key)) store.del(k);
-  }
   const days = view.day === "week" ? Array.from({ length: REPLAY_DAYS + 1 }, (_, i) => tvDay(i)) : [tvDay(view.day)];
-  const need = days.filter(d => !dayData.has(d.key) && !store.get(cacheKeyFor(d)));
-  if (need.length) renderStatus(view.day === "week" ? "Lade das Programm der letzten 7 Tage …" : `Lade das Programm von ${dayLabel(view.day).toLowerCase() === "heute" ? "heute" : fmtDay(days[0].start, true)} …`, 0);
+  if (force) for (const d of days) { dayData.delete(d.key); await idb.del(cacheKeyFor(d)); }
+  const ready = await Promise.all(days.map(cachedDay));
+  if (token !== loadToken) return;
+  if (ready.some(r => !r)) renderStatus(view.day === "week" ? "Lade das Programm der letzten 7 Tage …"
+    : `Lade das Programm von ${view.day === 0 ? "heute" : fmtDay(days[0].start, true)} …`, 0);
   try {
-    const perDay = Math.ceil(activeChannels().length / BATCH);
-    let doneDays = 0;
-    const lists = [];
-    for (const d of days) {
-      lists.push(await loadDay(d, (n) => updateProgress((doneDays * perDay + n) / (days.length * perDay))));
-      doneDays++;
-      if (token !== loadToken) return;
-    }
+    const total = ready.filter(r => !r).length * Math.ceil(activeChannels().length / BATCH);
+    let done = 0;
+    const lists = await pool(days, 2, d => loadDay(d, () => updateProgress(++done / total)));
+    if (token !== loadToken) return;
     airings = lists.flat();
     render();
+    setTimeout(prefetchPast, 1500);
   } catch (e) {
     if (token === loadToken) renderError(e.message || String(e));
   }
@@ -746,6 +805,7 @@ function renderHeader() {
     Array.from({ length: REPLAY_DAYS + 1 }, (_, i) => i).reverse().map(i =>
       `<span class="chip ${i === 0 ? "today" : ""} ${view.day === i ? "active" : ""}" data-day="${i}"><b>${esc(dayLabel(i))}</b></span>`).join("") +
     `<span class="sep"></span><span class="chip ${view.day === "week" ? "active" : ""}" data-day="week">Ganze Woche</span>`;
+  markReadyDays();
   const act = $("#dayNav .chip.active");
   if (act) { const nav = $("#dayNav"); nav.scrollLeft = act.offsetLeft - (nav.clientWidth - act.offsetWidth) / 2; }
 }
@@ -847,14 +907,15 @@ function openSettings() {
       return `<label><input type="checkbox" name="lang" value="${k}" ${settings.langs.includes(k) ? "checked" : ""}> ${v} <span class="hint">(${n})</span></label>`;
     }).join("");
   $("#settingsForm").hideShop.checked = !!settings.hideShop;
+  $("#settingsForm").prefetch.checked = !!settings.prefetch;
   $("#settingsDlg").showModal();
 }
 $("#settingsForm").addEventListener("submit", () => {
   const langs = [...document.querySelectorAll("#langSet input:checked")].map(i => i.value);
   const langsChanged = langs.join() !== settings.langs.join();
-  settings = { ...settings, langs: langs.length ? langs : ["de"], hideShop: $("#settingsForm").hideShop.checked };
+  settings = { ...settings, langs: langs.length ? langs : ["de"], hideShop: $("#settingsForm").hideShop.checked, prefetch: $("#settingsForm").prefetch.checked };
   store.set(LS_SETTINGS, settings);
-  if (langsChanged) { dayData.clear(); load(); } else render();
+  if (langsChanged) { dayData.clear(); load(); } else { render(); setTimeout(prefetchPast, 500); }
 });
 $("#settingsCancel").onclick = () => $("#settingsDlg").close();
 $("#settingsBtn").onclick = openSettings;
@@ -892,10 +953,11 @@ $("#detailDlg").addEventListener("click", e => { if (e.target === e.currentTarge
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && view.day === 0 && airings.length) {
     const today = tvDay(0).key;
-    if (!dayData.has(today)) load(); else render();
+    if (!isFresh(tvDay(0), dayData.get(today))) load(); else render();
   }
 });
 
+pruneCache();
 load();
 </script>
 </body>
