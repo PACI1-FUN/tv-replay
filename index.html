@@ -1,0 +1,902 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b1d5e">
+<title>TV Replay</title>
+<style>
+  :root {
+    --bg: #0b1d5e;        /* Königsblau, dunkel */
+    --panel: #13297a;
+    --panel-2: #1a3490;
+    --line: #2c48a8;
+    --hover: #5a7be0;
+    --text: #f3f6ff;
+    --muted: #b3c0ea;
+    --royal: #4169e1;     /* Königsblau */
+    --accent: #f5c518;
+    --good: #3ecf8e;
+    --mid: #f5b84a;
+    --bad: #ef5d5d;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif; }
+  button, input, select { font: inherit; color: inherit; }
+  a { color: inherit; }
+
+  header { position: sticky; top: 0; z-index: 20; background: rgba(11,29,94,.94);
+    backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
+  .bar { max-width: 1400px; margin: 0 auto; padding: 14px 20px 10px; display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; }
+  .brand h1 { margin: 0; font-size: 22px; letter-spacing: -.02em; }
+  .brand .sub { color: var(--muted); font-size: 13px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-left: auto; }
+  .chip { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 5px 12px;
+    cursor: pointer; font-size: 13px; display: inline-flex; gap: 6px; align-items: center; user-select: none; }
+  .chip .dot { width: 9px; height: 9px; border-radius: 50%; }
+  .chip.active { background: var(--royal); color: #fff; border-color: #8fa8ff; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+  .seg button { background: var(--panel); border: 0; padding: 5px 12px; cursor: pointer; font-size: 13px; }
+  .seg button.active { background: var(--royal); color: #fff; }
+  .icon-btn { background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; cursor: pointer; font-size: 13px; }
+  .icon-btn:hover, .chip:hover { border-color: var(--hover); }
+  select.icon-btn { appearance: none; padding-right: 12px; }
+  input.search { background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; width: 170px; font-size: 13px; }
+  nav.days, nav.cats { max-width: 1400px; margin: 0 auto; padding: 0 20px 10px; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+  nav.days::-webkit-scrollbar, nav.cats::-webkit-scrollbar { display: none; }
+  nav.days .chip, nav.cats .chip { white-space: nowrap; text-decoration: none; }
+  nav.days .chip b { font-weight: 600; }
+  nav.days .chip.today:not(.active) { border-color: var(--accent); }
+  nav.days .sep { flex: 0 0 1px; background: var(--line); margin: 4px 4px; }
+  nav.cats .chip b { color: var(--muted); font-weight: 500; }
+  nav.cats .chip.prio { border-color: var(--accent); }
+
+  main { max-width: 1400px; margin: 0 auto; padding: 8px 20px 60px; }
+  main:has(section.cat)::after { content: ""; display: block; height: 60vh; }
+  section.cat { margin-top: 28px; scroll-margin-top: 180px; }
+  section.cat h2 { font-size: 20px; margin: 0 0 12px; display: flex; align-items: baseline; gap: 10px; }
+  section.cat h2 small { color: var(--muted); font-weight: 400; font-size: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
+
+  .card { display: flex; gap: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 12px; cursor: pointer; transition: border-color .15s, transform .15s; min-width: 0; }
+  .card { content-visibility: auto; contain-intrinsic-size: auto 194px; }
+  .card:hover { border-color: var(--hover); transform: translateY(-2px); }
+  .poster { position: relative; flex: 0 0 132px; min-height: 168px; border-radius: 8px; overflow: hidden; background: var(--panel-2); }
+  .poster img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+  .poster .noimg { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 12px; text-align: center; padding: 8px; }
+  .poster .time { position: absolute; left: 6px; top: 6px; font-size: 12px; font-weight: 700; padding: 2px 7px; border-radius: 6px; background: var(--royal); }
+  .info { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+  .info h3 { margin: 0; font-size: 16px; line-height: 1.25; }
+  .info .subt { color: var(--muted); font-size: 12.5px; margin-top: -3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta { color: var(--muted); font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+  .badge { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 5px; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
+  .badge.new { background: #2b2410; border-color: #6b5a1a; color: var(--accent); }
+  .badge.live { background: #3a1212; border-color: #7a2020; color: #ff7a7a; }
+  .badge.replay { background: #0f2a20; border-color: #1f5a40; color: var(--good); }
+  .badge.soon { background: #14213a; border-color: #23406e; color: #8fb6ff; }
+  .badge.gone { color: var(--muted); }
+  .plat { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 5px; color: #fff; }
+  .abstract { font-size: 13.5px; color: #d5ddf7; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; margin: 0; }
+  .ratings { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; align-items: center; }
+  .score { font-size: 12px; font-weight: 700; padding: 3px 7px; border-radius: 6px; background: rgba(5,14,50,.8); display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
+  .score.g { color: var(--good); } .score.m { color: var(--mid); } .score.b { color: var(--bad); } .score.n { color: var(--muted); font-weight: 500; }
+  .more { font-size: 12px; color: var(--muted); }
+
+  .status { text-align: center; color: var(--muted); padding: 60px 20px; }
+  .spinner { width: 34px; height: 34px; border: 3px solid var(--line); border-top-color: #fff; border-radius: 50%;
+    animation: spin 0.8s linear infinite; margin: 0 auto 14px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .progress { width: 260px; height: 4px; background: var(--line); border-radius: 4px; margin: 12px auto 0; overflow: hidden; }
+  .progress div { height: 100%; background: var(--royal); width: 0; transition: width .2s; }
+  .primary { background: var(--royal); color: #fff; border: 0; border-radius: 999px; padding: 8px 18px; font-weight: 600; cursor: pointer; }
+  .error { color: var(--bad); }
+
+  dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 16px; padding: 0; max-width: min(820px, calc(100vw - 32px)); width: 100%; }
+  dialog::backdrop { background: rgba(3,10,40,.75); }
+  .form { padding: 24px; display: grid; gap: 14px; }
+  .form h2 { margin: 0; }
+  .form label { display: grid; gap: 5px; font-size: 13px; color: var(--muted); }
+  .form fieldset { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; display: flex; flex-wrap: wrap; gap: 8px 18px; }
+  .form legend { font-size: 13px; color: var(--muted); padding: 0 6px; }
+  .form fieldset label { display: inline-flex; gap: 6px; align-items: center; color: var(--text); font-size: 14px; }
+  .form .actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .hint { font-size: 12px; color: var(--muted); }
+
+  .detail-hero { position: relative; aspect-ratio: 16/7; background: var(--panel-2) center/cover no-repeat; }
+  .detail-hero::after { content: ""; position: absolute; inset: 0; background: linear-gradient(transparent 40%, var(--panel)); }
+  .detail-close { position: absolute; top: 10px; right: 10px; z-index: 2; background: rgba(0,0,0,.6); border: 0; border-radius: 50%; width: 34px; height: 34px; cursor: pointer; font-size: 18px; color: #fff; }
+  .detail-body { padding: 0 24px 24px; margin-top: -40px; position: relative; z-index: 1; }
+  .detail-body h2 { margin: 0 0 4px; font-size: 24px; }
+  .detail-body p.overview { color: #dde4fa; }
+  .airings { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 6px; }
+  .airings li { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; font-size: 13px; }
+  .airings li .when { font-weight: 600; min-width: 150px; }
+  .airings li .ep { color: var(--muted); flex-basis: 100%; font-size: 12px; }
+  .links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .links a { text-decoration: none; }
+  h4 { margin: 16px 0 4px; font-size: 14px; color: var(--muted); font-weight: 600; }
+
+  footer { max-width: 1400px; margin: 0 auto; padding: 20px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); }
+
+  @media (max-width: 640px) {
+    .bar { padding: 12px 16px 8px; }
+    nav.days, nav.cats, main { padding-left: 16px; padding-right: 16px; }
+    .controls { margin-left: 0; }
+    .grid { grid-template-columns: 1fr; }
+    .poster { flex-basis: 112px; }
+    .detail-body { padding: 0 16px 20px; margin-top: -20px; }
+    .airings li .when { min-width: 0; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="brand">
+      <h1>TV Replay</h1>
+      <div class="sub" id="range">–</div>
+    </div>
+    <div class="controls">
+      <div id="platformChips" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+      <div class="seg" id="typeSeg">
+        <button data-v="all" class="active">Alle</button>
+        <button data-v="movie">Filme</button>
+        <button data-v="tv">Serien</button>
+      </div>
+      <input class="search" id="search" type="search" placeholder="Titel, Sender…">
+      <button class="icon-btn" id="reloadBtn" title="Neu laden">↻ Aktualisieren</button>
+      <button class="icon-btn" id="settingsBtn" title="Einstellungen">⚙︎</button>
+    </div>
+  </div>
+  <nav class="days" id="dayNav"></nav>
+  <nav class="cats" id="catNav"></nav>
+</header>
+
+<main id="content"></main>
+
+<footer>
+  Programmdaten &amp; Bilder: öffentlicher TV-Programmführer von Swisscom (blue TV). Senderauswahl gemäss den Senderlisten
+  von Zattoo (Schweiz) und FL1 TV. Replay ist bei beiden Anbietern in der Regel 7 Tage verfügbar (Zattoo: Abo „Premium“/„Ultimate“).
+  Diese App ist inoffiziell und steht in keiner Verbindung zu Zattoo, FL1 oder Swisscom.
+</footer>
+
+<dialog id="settingsDlg">
+  <form class="form" method="dialog" id="settingsForm">
+    <h2>Einstellungen</h2>
+    <fieldset id="langSet">
+      <legend>Sender in diesen Sprachen laden</legend>
+    </fieldset>
+    <span class="hint">Je mehr Sprachen, desto mehr Daten müssen geladen werden. Deutsch allein sind ca. 80 Sender.</span>
+    <fieldset>
+      <legend>Anzeige</legend>
+      <label><input type="checkbox" name="hideShop"> Teleshopping &amp; Erotik ausblenden</label>
+    </fieldset>
+    <div class="actions">
+      <button type="button" class="icon-btn" id="settingsCancel">Abbrechen</button>
+      <button type="submit" class="primary">Speichern &amp; laden</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="detailDlg"></dialog>
+
+<script>
+"use strict";
+
+/* ---------- Konfiguration ---------- */
+// ANBIETER – Farbe und Name der Abzeichen (Anleitung: siehe ANLEITUNG.md)
+const PLATFORMS = [
+  { key: "zattoo", label: "Zattoo", color: "#e8730c", url: "https://zattoo.com/client" },
+  { key: "fl1",    label: "FL1",    color: "#0b7fc4", url: "https://www.fl1.li/tv/app/" },
+];
+
+// SENDER – hier hinzufügen oder löschen (Anleitung: siehe ANLEITUNG.md)
+//   id:   Sender-Nummer im Swisscom-Programmführer
+//   name: Name, der in der App angezeigt wird
+//   lang: Sprache (de, en, fr, it)
+//   on:   bei welchen Anbietern der Sender empfangbar ist
+const CHANNELS = [
+  // Deutsch – Schweiz
+  { id: 399,  name: "SRF 1",              lang: "de", on: ["zattoo", "fl1"] },
+  { id: 401,  name: "SRF zwei",           lang: "de", on: ["zattoo", "fl1"] },
+  { id: 400,  name: "SRF info",           lang: "de", on: ["zattoo", "fl1"] },
+  { id: 4,    name: "3+",                 lang: "de", on: ["zattoo", "fl1"] },
+  { id: 7,    name: "3+ Movies",          lang: "de", on: ["zattoo", "fl1"] },
+  { id: 8,    name: "3+ Series",          lang: "de", on: ["zattoo", "fl1"] },
+  { id: 634,  name: "3+ Adrenalin",       lang: "de", on: ["zattoo", "fl1"] },
+  { id: 665,  name: "3+ Emotion",         lang: "de", on: ["zattoo", "fl1"] },
+  { id: 374,  name: "3+ Focus",           lang: "de", on: ["zattoo", "fl1"] },
+  { id: 1469, name: "3+ Crime",           lang: "de", on: ["zattoo", "fl1"] },
+  { id: 289,  name: "3+ Family / Nick",   lang: "de", on: ["zattoo", "fl1"] },
+  { id: 325,  name: "Puls 8",             lang: "de", on: ["zattoo", "fl1"] },
+  { id: 1223, name: "Swiss1",             lang: "de", on: ["zattoo", "fl1"] },
+  { id: 405,  name: "Star TV",            lang: "de", on: ["zattoo", "fl1"] },
+  { id: 585,  name: "TeleZüri",           lang: "de", on: ["zattoo", "fl1"] },
+  { id: 583,  name: "Tele Z",             lang: "de", on: ["zattoo", "fl1"] },
+  { id: 575,  name: "Tele M1",            lang: "de", on: ["zattoo", "fl1"] },
+  { id: 641,  name: "TVO",                lang: "de", on: ["zattoo", "fl1"] },
+  { id: 621,  name: "TV Südostschweiz",   lang: "de", on: ["zattoo", "fl1"] },
+  { id: 630,  name: "TV Rheintal",        lang: "de", on: ["fl1"] },
+  { id: 1466, name: "Rheinwelten TV",     lang: "de", on: ["fl1"] },
+  { id: 572,  name: "TeleBärn",           lang: "de", on: ["zattoo"] },
+  { id: 586,  name: "Telebasel",          lang: "de", on: ["zattoo"] },
+  { id: 570,  name: "Tele 1",             lang: "de", on: ["zattoo"] },
+  { id: 579,  name: "Tele Top",           lang: "de", on: ["zattoo"] },
+  { id: 382,  name: "Schaffhauser Fernsehen", lang: "de", on: ["zattoo"] },
+  { id: 350,  name: "RiC",                lang: "de", on: ["zattoo", "fl1"] },
+  // Deutsch – Deutschland & Österreich
+  { id: 25,   name: "Das Erste",          lang: "de", on: ["zattoo", "fl1"] },
+  { id: 656,  name: "ZDF",                lang: "de", on: ["zattoo", "fl1"] },
+  { id: 303,  name: "ORF 1",              lang: "de", on: ["zattoo", "fl1"] },
+  { id: 302,  name: "ORF 2",              lang: "de", on: ["zattoo", "fl1"] },
+  { id: 1222, name: "ORF III",            lang: "de", on: ["zattoo", "fl1"] },
+  { id: 360,  name: "RTL",                lang: "de", on: ["zattoo", "fl1"] },
+  { id: 359,  name: "RTL ZWEI",           lang: "de", on: ["zattoo", "fl1"] },
+  { id: 375,  name: "SAT.1",              lang: "de", on: ["zattoo", "fl1"] },
+  { id: 322,  name: "ProSieben",          lang: "de", on: ["zattoo", "fl1"] },
+  { id: 323,  name: "ProSieben MAXX",     lang: "de", on: ["zattoo", "fl1"] },
+  { id: 651,  name: "VOX",                lang: "de", on: ["zattoo", "fl1"] },
+  { id: 1612, name: "VOXup",              lang: "de", on: ["zattoo", "fl1"] },
+  { id: 919,  name: "RTLup",              lang: "de", on: ["zattoo", "fl1"] },
+  { id: 363,  name: "Nitro",              lang: "de", on: ["zattoo", "fl1"] },
+  { id: 226,  name: "Kabel Eins",         lang: "de", on: ["zattoo", "fl1"] },
+  { id: 920,  name: "Kabel Eins Doku",    lang: "de", on: ["zattoo", "fl1"] },
+  { id: 385,  name: "sixx",               lang: "de", on: ["zattoo", "fl1"] },
+  { id: 377,  name: "SAT.1 GOLD",         lang: "de", on: ["fl1"] },
+  { id: 411,  name: "Super RTL",          lang: "de", on: ["zattoo", "fl1"] },
+  { id: 571,  name: "Tele 5",             lang: "de", on: ["zattoo", "fl1"] },
+  { id: 24,   name: "Anixe Serie",        lang: "de", on: ["zattoo", "fl1"] },
+  { id: 381,  name: "ServusTV",           lang: "de", on: ["fl1"] },
+  { id: 2115, name: "DF1",                lang: "de", on: ["fl1"] },
+  { id: 110,  name: "Comedy Central",     lang: "de", on: ["zattoo", "fl1"] },
+  { id: 136,  name: "DMAX",               lang: "de", on: ["zattoo", "fl1"] },
+  { id: 607,  name: "TLC",                lang: "de", on: ["zattoo", "fl1"] },
+  { id: 1510, name: "HGTV",               lang: "de", on: ["zattoo", "fl1"] },
+  { id: 655,  name: "Welt der Wunder",    lang: "de", on: ["zattoo"] },
+  { id: 6,    name: "3sat",               lang: "de", on: ["zattoo", "fl1"] },
+  { id: 27,   name: "Arte",               lang: "de", on: ["zattoo", "fl1"] },
+  { id: 659,  name: "ZDFneo",             lang: "de", on: ["zattoo", "fl1"] },
+  { id: 658,  name: "ZDFinfo",            lang: "de", on: ["zattoo", "fl1"] },
+  { id: 147,  name: "ONE",                lang: "de", on: ["zattoo", "fl1"] },
+  { id: 26,   name: "ARD alpha",          lang: "de", on: ["zattoo", "fl1"] },
+  { id: 414,  name: "SWR",                lang: "de", on: ["zattoo", "fl1"] },
+  { id: 55,   name: "BR",                 lang: "de", on: ["zattoo", "fl1"] },
+  { id: 654,  name: "WDR",                lang: "de", on: ["zattoo", "fl1"] },
+  { id: 286,  name: "NDR",                lang: "de", on: ["zattoo", "fl1"] },
+  { id: 256,  name: "MDR",                lang: "de", on: ["zattoo", "fl1"] },
+  { id: 342,  name: "rbb",                lang: "de", on: ["zattoo", "fl1"] },
+  { id: 205,  name: "hr",                 lang: "de", on: ["zattoo", "fl1"] },
+  { id: 1502, name: "SR",                 lang: "de", on: ["zattoo", "fl1"] },
+  { id: 307,  name: "phoenix",            lang: "de", on: ["zattoo", "fl1"] },
+  { id: 1030, name: "N24 Doku",           lang: "de", on: ["zattoo", "fl1"] },
+  { id: 277,  name: "WELT",               lang: "de", on: ["zattoo", "fl1"] },
+  { id: 1950, name: "Arcadia TV",         lang: "de", on: ["fl1"] },
+  { id: 2130, name: "DOKUSAT",            lang: "de", on: ["fl1"] },
+  { id: 228,  name: "KiKA",               lang: "de", on: ["zattoo", "fl1"] },
+  { id: 128,  name: "Disney Channel",     lang: "de", on: ["zattoo", "fl1"] },
+  { id: 918,  name: "Toggo plus",         lang: "de", on: ["zattoo"] },
+  { id: 54,   name: "Cartoonito",         lang: "de", on: ["zattoo"] },
+  // Englisch
+  { id: 37,   name: "BBC One",            lang: "en", on: ["zattoo", "fl1"] },
+  { id: 39,   name: "BBC Two",            lang: "en", on: ["zattoo", "fl1"] },
+  { id: 35,   name: "BBC Four",           lang: "en", on: ["zattoo", "fl1"] },
+  { id: 218,  name: "ITV1",               lang: "en", on: ["zattoo", "fl1"] },
+  { id: 219,  name: "ITV2",               lang: "en", on: ["zattoo", "fl1"] },
+  { id: 220,  name: "ITV3",               lang: "en", on: ["zattoo", "fl1"] },
+  { id: 221,  name: "ITV4",               lang: "en", on: ["zattoo", "fl1"] },
+  { id: 89,   name: "Channel 4",          lang: "en", on: ["zattoo", "fl1"] },
+  { id: 178,  name: "Channel 5",          lang: "en", on: ["zattoo", "fl1"] },
+  { id: 176,  name: "Film4",              lang: "en", on: ["zattoo", "fl1"] },
+  { id: 146,  name: "E4",                 lang: "en", on: ["zattoo", "fl1"] },
+  { id: 262,  name: "More4",              lang: "en", on: ["zattoo", "fl1"] },
+  { id: 1507, name: "U&Dave",             lang: "en", on: ["zattoo", "fl1"] },
+  { id: 1411, name: "5USA",               lang: "en", on: ["fl1"] },
+  { id: 1670, name: "5SELECT",            lang: "en", on: ["zattoo"] },
+  { id: 1652, name: "5STAR",              lang: "en", on: ["zattoo"] },
+  { id: 1678, name: "4Seven",             lang: "en", on: ["zattoo"] },
+  { id: 1404, name: "PBS America",        lang: "en", on: ["zattoo"] },
+  // Französisch
+  { id: 369,  name: "RTS 1",              lang: "fr", on: ["zattoo", "fl1"] },
+  { id: 367,  name: "RTS 2",              lang: "fr", on: ["zattoo", "fl1"] },
+  { id: 601,  name: "TF1",                lang: "fr", on: ["zattoo", "fl1"] },
+  { id: 249,  name: "M6",                 lang: "fr", on: ["zattoo", "fl1"] },
+  { id: 653,  name: "W9",                 lang: "fr", on: ["zattoo", "fl1"] },
+  { id: 182,  name: "France 2",           lang: "fr", on: ["zattoo", "fl1"] },
+  { id: 184,  name: "France 3",           lang: "fr", on: ["zattoo", "fl1"] },
+  { id: 185,  name: "France 4",           lang: "fr", on: ["zattoo", "fl1"] },
+  { id: 9,    name: "6ter",               lang: "fr", on: ["zattoo", "fl1"] },
+  { id: 635,  name: "TV5MONDE",           lang: "fr", on: ["zattoo", "fl1"] },
+  { id: 186,  name: "France 5",           lang: "fr", on: ["zattoo"] },
+  { id: 609,  name: "TMC",                lang: "fr", on: ["zattoo"] },
+  { id: 28,   name: "Arte (fr)",          lang: "fr", on: ["zattoo"] },
+  { id: 199,  name: "TF1 Séries Films",   lang: "fr", on: ["zattoo"] },
+  // Italienisch
+  { id: 356,  name: "RSI LA 1",           lang: "it", on: ["zattoo", "fl1"] },
+  { id: 357,  name: "RSI LA 2",           lang: "it", on: ["zattoo", "fl1"] },
+  { id: 327,  name: "Rai 1",              lang: "it", on: ["zattoo", "fl1"] },
+  { id: 328,  name: "Rai 2",              lang: "it", on: ["zattoo", "fl1"] },
+  { id: 329,  name: "Rai 3",              lang: "it", on: ["zattoo", "fl1"] },
+  { id: 330,  name: "Rai 4",              lang: "it", on: ["zattoo", "fl1"] },
+  { id: 215,  name: "Italia 1",           lang: "it", on: ["zattoo", "fl1"] },
+  { id: 348,  name: "Rete 4",             lang: "it", on: ["zattoo", "fl1"] },
+  { id: 79,   name: "Canale 5",           lang: "it", on: ["zattoo", "fl1"] },
+  { id: 237,  name: "La7",                lang: "it", on: ["zattoo", "fl1"] },
+  { id: 214,  name: "Iris",               lang: "it", on: ["zattoo", "fl1"] },
+  { id: 334,  name: "Rai Movie",          lang: "it", on: ["zattoo"] },
+  { id: 96,   name: "Cielo",              lang: "it", on: ["zattoo"] },
+  { id: 191,  name: "Giallo",             lang: "it", on: ["zattoo"] },
+];
+const LANGS = { de: "Deutsch", en: "Englisch", fr: "Französisch", it: "Italienisch" };
+
+// Reihenfolge der Kategorien: Thriller, Krimi, Sci-Fi zuerst (wie „Neu im Stream“),
+// Nachrichten und Sport direkt nach Komödie, danach die übrigen Sendungen
+const CATEGORY_ORDER = [
+  "Thriller", "Krimi", "Science-Fiction",
+  "Action", "Drama", "Komödie", "Nachrichten", "Sport",
+  "Horror", "Mystery", "Fantasy", "Abenteuer",
+  "Romantik", "Animation", "Familie & Kinder", "Historie & Krieg", "Western",
+  "Dokumentation", "Talk", "Show & Unterhaltung",
+  "Magazin & Ratgeber", "Reality", "Musik", "Kultur", "Religion",
+  "Teleshopping & Erotik", "Sonstige",
+];
+const PRIORITY_CATS = new Set(["Thriller", "Krimi", "Science-Fiction"]);
+// Kategorien, die als Film bzw. Serie gelten (alles andere: Doku oder Info & Show)
+const FICTION_CATS = new Set(["Thriller", "Krimi", "Science-Fiction", "Action", "Drama", "Komödie", "Horror",
+  "Mystery", "Fantasy", "Abenteuer", "Romantik", "Animation", "Familie & Kinder", "Historie & Krieg", "Western"]);
+
+// Genre-Nummern des Programmführers → Kategorie.
+// Jede Sendung hat mehrere Genres; das erste (Hauptgenre) bestimmt die Kategorie.
+const GENRE_MAP = {
+  // Filme & Serien
+  19: "Thriller", 5: "Krimi", 292: "Krimi", 7: "Krimi", 89: "Krimi",
+  18: "Science-Fiction", 1: "Action", 145: "Action", 230: "Action",
+  9: "Drama", 91: "Drama", 116: "Drama", 146: "Drama", 196: "Drama",
+  4: "Komödie", 6: "Komödie", 188: "Komödie", 13: "Horror", 15: "Mystery", 11: "Fantasy",
+  2: "Abenteuer", 16: "Romantik", 17: "Romantik", 44: "Animation", 45: "Animation",
+  78: "Familie & Kinder", 22: "Familie & Kinder", 99: "Familie & Kinder", 123: "Familie & Kinder", 319: "Familie & Kinder",
+  12: "Historie & Krieg", 20: "Historie & Krieg", 147: "Historie & Krieg", 21: "Western",
+  // Dokus
+  8: "Dokumentation", 3: "Dokumentation", 43: "Dokumentation", 46: "Dokumentation", 54: "Dokumentation",
+  101: "Dokumentation", 121: "Dokumentation", 155: "Dokumentation", 162: "Dokumentation", 184: "Dokumentation",
+  202: "Dokumentation", 218: "Dokumentation", 260: "Dokumentation", 301: "Dokumentation", 302: "Dokumentation",
+  // Nachrichten & Wetter
+  156: "Nachrichten", 157: "Nachrichten", 168: "Nachrichten", 172: "Nachrichten", 225: "Nachrichten",
+  // Sport
+  105: "Sport", 111: "Sport", 119: "Sport", 122: "Sport", 171: "Sport", 181: "Sport", 199: "Sport",
+  206: "Sport", 241: "Sport", 254: "Sport", 291: "Sport", 300: "Sport",
+  // Talk & Debatte
+  214: "Talk", 137: "Talk", 93: "Talk",
+  // Shows, Quiz, Comedy
+  100: "Show & Unterhaltung", 115: "Show & Unterhaltung", 313: "Show & Unterhaltung",
+  316: "Show & Unterhaltung", 294: "Show & Unterhaltung", 208: "Show & Unterhaltung", 150: "Show & Unterhaltung",
+  // Magazine, Ratgeber, Kochen, Wohnen, Gesundheit, Auto, Regionales
+  86: "Magazin & Ratgeber", 87: "Magazin & Ratgeber", 120: "Magazin & Ratgeber", 129: "Magazin & Ratgeber",
+  131: "Magazin & Ratgeber", 132: "Magazin & Ratgeber", 106: "Magazin & Ratgeber", 74: "Magazin & Ratgeber",
+  84: "Magazin & Ratgeber", 85: "Magazin & Ratgeber", 52: "Magazin & Ratgeber", 232: "Magazin & Ratgeber",
+  104: "Magazin & Ratgeber", 118: "Magazin & Ratgeber", 41: "Magazin & Ratgeber", 185: "Magazin & Ratgeber",
+  220: "Magazin & Ratgeber", 50: "Magazin & Ratgeber", 51: "Magazin & Ratgeber", 82: "Magazin & Ratgeber",
+  // Reality, Doku-Soaps, Gerichtsshows
+  174: "Reality", 293: "Reality", 143: "Reality", 160: "Reality", 110: "Reality",
+  // Musik & Kultur
+  23: "Musik", 14: "Musik", 152: "Musik", 264: "Musik", 266: "Musik", 274: "Musik",
+  49: "Kultur", 55: "Kultur", 165: "Kultur", 308: "Kultur",
+  175: "Religion",
+  187: "Teleshopping & Erotik", 10: "Teleshopping & Erotik", 40: "Teleshopping & Erotik",
+};
+const DOC_HINT = new Set([8]);             // Krimi/Drama-Genre + „Dokumentation“ → als Doku zählen (z. B. True Crime)
+const REALITY_HINT = new Set([174, 293]);  // Drama-Genre + Reality/Doku-Soap → als Show zählen
+
+const API = "https://services.sg101.prd.sctv.ch";
+const IMG = API + "/content/images/";
+const REPLAY_DAYS = 7;
+const DAY_START_HOUR = 5;          // Fernsehtag: 05:00 bis 05:00
+const BATCH = 12;                  // Sender pro Anfrage
+const LS_SETTINGS = "tvr:settings";
+const LS_DAY = "tvr:day3:";        // bei Änderungen an der Einteilung erhöhen
+
+/* ---------- Zustand ---------- */
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } },
+  del(k) { try { localStorage.removeItem(k); } catch {} },
+  keys() { try { return Object.keys(localStorage); } catch { return []; } },
+};
+let settings = Object.assign({ langs: ["de"], hideShop: true }, store.get(LS_SETTINGS) || {});
+const dayData = new Map();         // "YYYY-MM-DD" → Liste der Ausstrahlungen
+let airings = [];
+const view = { day: 0, platform: "all", type: "all", q: "" };   // day: 0 = heute … 7, "week" = alle
+let loadToken = 0;
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const pad = n => String(n).padStart(2, "0");
+const iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const platform = k => PLATFORMS.find(p => p.key === k);
+const channelById = new Map(CHANNELS.map(c => [c.id, c]));
+const activeChannels = () => CHANNELS.filter(c => settings.langs.includes(c.lang));
+const fmtTime = t => { const d = new Date(t); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const fmtDay = (t, long) => new Date(t).toLocaleDateString("de-CH", long ? { weekday: "long", day: "numeric", month: "long" } : { weekday: "short", day: "numeric", month: "short" });
+
+/* ---------- Fernsehtage ---------- */
+function tvDay(offset) {          // offset 0 = heute, 1 = gestern …
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), DAY_START_HOUR);
+  if (now < start) start.setDate(start.getDate() - 1);   // vor 05:00 gehört noch zum Vortag
+  start.setDate(start.getDate() - offset);
+  const end = new Date(start); end.setDate(end.getDate() + 1);
+  return { key: iso(start), start: start.getTime(), end: end.getTime(), offset };
+}
+function dayLabel(offset) {
+  if (offset === 0) return "Heute";
+  if (offset === 1) return "Gestern";
+  return new Date(tvDay(offset).start).toLocaleDateString("de-CH", { weekday: "short", day: "numeric", month: "numeric" });
+}
+const utcStamp = t => { const d = new Date(t); return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}`; };
+
+/* ---------- API ---------- */
+async function fetchJson(url) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const r = await fetch(url);
+      if (r.ok) return r.json();
+      if (r.status < 500 && r.status !== 429) throw new Error(`Programmführer-Fehler ${r.status}`);
+    } catch (e) { if (attempt === 2) throw e; }
+    await new Promise(res => setTimeout(res, 700 * (attempt + 1)));
+  }
+  throw new Error("Der Programmführer antwortet nicht – bitte später erneut versuchen.");
+}
+
+async function pool(list, n, fn, onTick) {
+  const out = new Array(list.length); let i = 0, done = 0;
+  await Promise.all(Array.from({ length: n }, async () => {
+    while (i < list.length) {
+      const idx = i++;
+      out[idx] = await fn(list[idx]);
+      onTick && onTick(++done, list.length);
+    }
+  }));
+  return out;
+}
+
+/* ---------- Daten laden ---------- */
+function cacheKeyFor(day) { return LS_DAY + day.key; }
+function channelSig() { return activeChannels().map(c => c.id).join(","); }
+
+async function loadDay(day, onTick) {
+  if (dayData.has(day.key)) return dayData.get(day.key);
+  const cached = store.get(cacheKeyFor(day));
+  const now = Date.now();
+  // Vergangene Tage ändern sich kaum (24 h gültig), der laufende Tag 30 Min.
+  const maxAge = day.end < now ? 24 * 3600e3 : 30 * 60e3;
+  if (cached && cached.sig === channelSig() && now - cached.t < maxAge) {
+    dayData.set(day.key, cached.list); return cached.list;
+  }
+  const chans = activeChannels();
+  const batches = [];
+  for (let i = 0; i < chans.length; i += BATCH) batches.push(chans.slice(i, i + BATCH));
+  const results = await pool(batches, 4, async b => {
+    const url = `${API}/catalog/tv/channels/list/(ids=${b.map(c => c.id).join(",")};start=${utcStamp(day.start)};end=${utcStamp(day.end)};level=normal)`;
+    return parse(await fetchJson(url), day);
+  }, onTick);
+  const list = results.flat();
+  dayData.set(day.key, list);
+  saveDay(day, list);
+  return list;
+}
+
+function saveDay(day, list) {
+  const v = { sig: channelSig(), t: Date.now(), list };
+  if (store.set(cacheKeyFor(day), v)) return;
+  // Speicher voll → andere Tage aus dem Zwischenspeicher entfernen und nochmals versuchen
+  for (const k of store.keys()) if (k.startsWith(LS_DAY) && k !== cacheKeyFor(day)) store.del(k);
+  store.set(cacheKeyFor(day), v);
+}
+function pruneCache() {
+  const keep = new Set(Array.from({ length: REPLAY_DAYS + 1 }, (_, i) => LS_DAY + tvDay(i).key));
+  for (const k of store.keys()) if ((k.startsWith(LS_DAY) && !keep.has(k)) || (k.startsWith("tvr:day") && !k.startsWith(LS_DAY))) store.del(k);
+}
+
+function parse(json, day) {
+  const out = [];
+  for (const ch of json?.Nodes?.Items || []) {
+    if (ch.Kind !== "Channel") continue;
+    const chId = Number(ch.Identifier);
+    if (!channelById.has(chId)) continue;
+    for (const b of ch.Content?.Nodes?.Items || []) {
+      if (b.Kind !== "Broadcast") continue;
+      const it = toAiring(b, chId);
+      if (it && it.start >= day.start && it.start < day.end) out.push(it);
+    }
+  }
+  return out;
+}
+
+function toAiring(b, chId) {
+  const c = b.Content || {}, d = c.Description || {};
+  const av = (b.Availabilities || [])[0];
+  if (!av || !d.Title || d.Title === "Sendepause") return null;
+  const start = Date.parse(av.AvailabilityStart), end = Date.parse(av.AvailabilityEnd);
+  const dur = Math.round((end - start) / 60000);
+  if (dur < 1) return null;
+
+  const genres = (c.ExternalGenres || []).map(Number);
+  const rel = b.Relations || [];
+  const tms = (rel.find(r => r.Role === "TMS")?.TargetIdentifier || "").slice(0, 2);
+  const cats = genres.map(g => GENRE_MAP[g]).filter(Boolean);
+  let primary = cats[0] || "Sonstige";
+  // Feinkorrekturen: Sport- und Talk-Genres haben Vorrang vor allgemeinen Einteilungen
+  if (cats.includes("Sport") && ["Nachrichten", "Magazin & Ratgeber", "Show & Unterhaltung"].includes(primary)) primary = "Sport";
+  if (genres.includes(214) && ["Dokumentation", "Show & Unterhaltung", "Magazin & Ratgeber"].includes(primary)) primary = "Talk";
+  const firstFiction = cats.find(x => FICTION_CATS.has(x));
+
+  // Typ: Film / Serie / Doku / Info & Show
+  let type, category = primary;
+  if (primary === "Teleshopping & Erotik" || cats.includes("Teleshopping & Erotik")) {
+    type = "show"; category = "Teleshopping & Erotik";
+  } else if (tms === "MV") {
+    if (primary === "Dokumentation" && !firstFiction) type = "doc";
+    else { type = "movie"; category = firstFiction || primary; }
+  } else if (FICTION_CATS.has(primary) && genres.some(g => DOC_HINT.has(g))) {
+    type = "doc"; category = "Dokumentation";
+  } else if (FICTION_CATS.has(primary) && genres.some(g => REALITY_HINT.has(g))) {
+    type = "show"; category = "Reality";
+  } else if (FICTION_CATS.has(primary)) {
+    type = "tv";
+  } else if (primary === "Dokumentation") {
+    type = "doc";
+  } else {
+    type = "show";
+  }
+
+  const people = (role, n) => rel.filter(r => r.Kind === "Participant" && r.Role === role)
+    .map(r => r.TargetNode?.Content?.Description?.Fullname).filter(Boolean).slice(0, n);
+  const rating = d.Rating ? Number(d.Rating) / 10 : null;
+  const s = c.Series || {};
+  const fiction = type === "movie" || type === "tv";
+
+  return {
+    id: b.Identifier, ch: chId, start, end, dur, type, category,
+    title: d.Title, sub: d.Subtitle || "",
+    summary: (d.Summary || d.ShortSummary || "").slice(0, fiction ? 600 : 350),
+    year: fiction ? (d.ReleaseDate || "").slice(0, 4) : "", country: fiction ? d.Country || "" : "",
+    age: d.AgeRestrictionRating || "",
+    rating: rating && rating > 0 ? rating : null,
+    img: pickImage(c.Nodes?.Items || []),
+    season: s.Season || null, episode: s.Episode || null,
+    group: type !== "movie" && s.GlobalSeriesIdentifier ? "s" + s.GlobalSeriesIdentifier : "p" + (b.RootIdentifier || d.Title),
+    genres: [...new Set(cats)],
+    directors: fiction ? people("Director", 2) : [], actors: fiction ? people("Actor", 5) : [],
+  };
+}
+
+function pickImage(nodes) {
+  const roleScore = { Landscape: 3, Stage: 2, Lane: 1 };
+  const shapeScore = { Iconic: 3, Backdrop: 3, KeyArt: 2, Curated: 1 };
+  let best = null, bestScore = -1;
+  for (const n of nodes) {
+    if (n.Kind !== "Image" || !n.ContentPath || /^Title/.test(n.Shape || "") || n.Role === "Title") continue;
+    const sc = (roleScore[n.Role] || 0) * 10 + (shapeScore[n.Shape] || 0) - (n.HasTitle ? 5 : 0);
+    if (sc > bestScore) { best = n.ContentPath; bestScore = sc; }
+  }
+  return best;
+}
+const imgUrl = (p, big) => p ? `${IMG}${p}_${big ? "w1920" : "w300"}.webp` : null;
+
+async function load(force = false) {
+  const token = ++loadToken;
+  pruneCache();
+  if (force) {
+    dayData.clear();
+    for (const k of store.keys()) if (k.startsWith(LS_DAY) && (view.day === "week" || k === LS_DAY + tvDay(view.day).key)) store.del(k);
+  }
+  const days = view.day === "week" ? Array.from({ length: REPLAY_DAYS + 1 }, (_, i) => tvDay(i)) : [tvDay(view.day)];
+  const need = days.filter(d => !dayData.has(d.key) && !store.get(cacheKeyFor(d)));
+  if (need.length) renderStatus(view.day === "week" ? "Lade das Programm der letzten 7 Tage …" : `Lade das Programm von ${dayLabel(view.day).toLowerCase() === "heute" ? "heute" : fmtDay(days[0].start, true)} …`, 0);
+  try {
+    const perDay = Math.ceil(activeChannels().length / BATCH);
+    let doneDays = 0;
+    const lists = [];
+    for (const d of days) {
+      lists.push(await loadDay(d, (n) => updateProgress((doneDays * perDay + n) / (days.length * perDay))));
+      doneDays++;
+      if (token !== loadToken) return;
+    }
+    airings = lists.flat();
+    render();
+  } catch (e) {
+    if (token === loadToken) renderError(e.message || String(e));
+  }
+}
+
+/* ---------- Status einer Ausstrahlung ---------- */
+function airState(a, now = Date.now()) {
+  if (a.start <= now && a.end > now) return { cls: "live", txt: "● Läuft jetzt" };
+  if (a.end <= now) return a.end > now - REPLAY_DAYS * 864e5
+    ? { cls: "replay", txt: "↺ Replay" } : { cls: "gone", txt: "Replay abgelaufen" };
+  return { cls: "soon", txt: "Demnächst" };
+}
+function whenText(a) {
+  const d = tvDayOffsetOf(a.start);
+  const day = d === 0 ? "Heute" : d === 1 ? "Gestern" : fmtDay(a.start);
+  return `${day} ${fmtTime(a.start)}`;
+}
+function tvDayOffsetOf(t) {
+  for (let i = 0; i <= REPLAY_DAYS; i++) { const d = tvDay(i); if (t >= d.start && t < d.end) return i; }
+  return -1;
+}
+
+/* ---------- Rendering ---------- */
+function filteredAirings() {
+  const q = view.q.trim().toLowerCase();
+  return airings.filter(a => {
+    const ch = channelById.get(a.ch);
+    if (!ch || !settings.langs.includes(ch.lang)) return false;
+    if (view.platform !== "all" && !ch.on.includes(view.platform)) return false;
+    if (view.type !== "all" && a.type !== view.type) return false;
+    if (settings.hideShop && a.category === "Teleshopping & Erotik") return false;
+    if (q && !(a.title + " " + a.sub + " " + ch.name + " " + a.genres.join(" ") + " " + a.actors.join(" ")).toLowerCase().includes(q)) return false;
+    return true;
+  });
+}
+
+function buildGroups(list) {
+  const map = new Map();
+  for (const a of list) {
+    if (!map.has(a.group)) map.set(a.group, []);
+    map.get(a.group).push(a);
+  }
+  const now = Date.now();
+  return [...map.entries()].map(([key, arr]) => {
+    arr.sort((x, y) => x.start - y.start);
+    // Repräsentant: läuft gerade > nächste kommende > zuletzt gelaufene
+    const rep = arr.find(a => a.start <= now && a.end > now)
+      || (view.day === 0 ? arr.find(a => a.start > now) : null)
+      || arr[arr.length - 1];
+    const plats = PLATFORMS.map(p => p.key).filter(k => arr.some(a => channelById.get(a.ch).on.includes(k)));
+    const rating = Math.max(0, ...arr.map(a => a.rating || 0)) || null;
+    const withSummary = arr.find(a => a.summary) || rep;
+    return { key, airings: arr, rep, plats, rating, summary: withSummary.summary, img: rep.img || arr.find(a => a.img)?.img };
+  });
+}
+
+function sorter(a, b) {
+  return view.day === "week" ? b.rep.start - a.rep.start : a.rep.start - b.rep.start;
+}
+
+function render() {
+  renderHeader();
+  const groups = buildGroups(filteredAirings());
+  const byCat = new Map(CATEGORY_ORDER.map(c => [c, []]));
+  for (const g of groups) (byCat.get(g.rep.category) || byCat.get("Sonstige")).push(g);
+
+  const nav = [], html = [];
+  for (const [cat, arr] of byCat) {
+    if (!arr.length) continue;
+    arr.sort(sorter);
+    const id = "cat-" + cat.replace(/[^a-z]/gi, "");
+    nav.push(`<a class="chip ${PRIORITY_CATS.has(cat) ? "prio" : ""}" href="#${id}" data-cat="${id}">${esc(cat)} <b>${arr.length}</b></a>`);
+    html.push(`<section class="cat" id="${id}"><h2>${esc(cat)} <small>${arr.length} Titel</small></h2><div class="grid">${arr.map(cardHtml).join("")}</div></section>`);
+  }
+  $("#catNav").innerHTML = nav.join("");
+  if (!html.length) {
+    const p = platform(view.platform);
+    const msg = !airings.length ? "Für diesen Tag wurden keine Sendungen gefunden."
+      : p && !view.q && view.type === "all" ? `Bei ${p.label} wurde für diesen Tag nichts gefunden.`
+      : "Keine Sendungen für diese Auswahl.";
+    $("#content").innerHTML = `<div class="status">${esc(msg)}</div>`;
+    return;
+  }
+  const count = t => groups.filter(g => g.rep.type === t).length;
+  $("#content").innerHTML = `<p class="hint" style="margin:14px 0 0">${groups.length} Titel · ${count("movie")} Filme · ${count("tv")} Serien</p>` + html.join("");
+  spyCategories();
+}
+
+function platformsHtml(keys) {
+  return keys.map(k => { const p = platform(k); return `<span class="plat" style="background:${p.color}">${esc(p.label)}</span>`; }).join("");
+}
+function scoreClass(v) { return v >= 7 ? "g" : v >= 5.5 ? "m" : "b"; }
+function typeLabel(a) {
+  if (a.type === "movie") return "Film";
+  if (a.type === "doc") return "Doku";
+  if (a.type === "show") return a.category === "Sonstige" ? "Sendung" : a.category;
+  return a.season && a.episode ? `Serie · S${a.season} E${a.episode}` : a.episode ? `Serie · Folge ${a.episode}` : "Serie";
+}
+
+function cardHtml(g) {
+  const a = g.rep, ch = channelById.get(a.ch), st = airState(a);
+  const img = imgUrl(g.img);
+  const more = g.airings.length - 1;
+  const isNewSeason = a.type === "tv" && a.episode === 1;
+  return `<article class="card" data-key="${esc(g.key)}">
+    <div class="poster">${img ? `<img loading="lazy" src="${img}" alt="${esc(a.title)}" onerror="this.remove()">` : `<div class="noimg">${esc(ch.name)}</div>`}
+      <span class="time">${fmtTime(a.start)}</span></div>
+    <div class="info">
+      <h3>${esc(a.title)}</h3>
+      ${a.type !== "movie" && a.sub ? `<div class="subt">${esc(a.sub)}</div>` : ""}
+      <div class="meta">
+        ${platformsHtml(g.plats)}
+        <span class="badge ${isNewSeason ? "new" : ""}">${esc(isNewSeason ? `Neue Staffel ${a.season || ""}`.trim() : typeLabel(a))}</span>
+        <span class="badge ${st.cls}">${st.txt}</span>
+      </div>
+      <div class="meta"><span><b style="color:var(--text);font-weight:600">${esc(ch.name)}</b> · ${esc(whenText(a))}–${fmtTime(a.end)}</span>${a.year ? `<span>· ${esc(a.year)}</span>` : ""}</div>
+      <p class="abstract">${esc(g.summary || "Keine Beschreibung verfügbar.")}</p>
+      <div class="ratings">
+        ${g.rating ? `<span class="score ${scoreClass(g.rating)}" title="Bewertung laut Programmführer">★ ${g.rating.toFixed(1)}</span>` : ""}
+        ${a.age ? `<span class="score n" title="Altersfreigabe">${esc(a.age)}</span>` : ""}
+        ${more > 0 ? `<span class="more">+ ${more} weitere ${more === 1 ? "Ausstrahlung" : "Ausstrahlungen"}</span>` : ""}
+      </div>
+    </div>
+  </article>`;
+}
+
+function renderHeader() {
+  const days = view.day === "week" ? [tvDay(REPLAY_DAYS), tvDay(0)] : [tvDay(view.day)];
+  const f = t => new Date(t).toLocaleDateString("de-CH", { weekday: "short", day: "numeric", month: "short" });
+  $("#range").textContent = view.day === "week"
+    ? `Programm vom ${f(days[0].start)} bis ${f(days[1].start)} · Replay 7 Tage`
+    : `Programm ${f(days[0].start)} ${new Date(days[0].start).getFullYear()} · 05:00–05:00 · Replay 7 Tage`;
+  $("#platformChips").innerHTML =
+    `<span class="chip ${view.platform === "all" ? "active" : ""}" data-p="all">Alle Anbieter</span>` +
+    PLATFORMS.map(p =>
+      `<span class="chip ${view.platform === p.key ? "active" : ""}" data-p="${p.key}"><span class="dot" style="background:${p.color}"></span>${p.label}</span>`).join("");
+  $("#dayNav").innerHTML =
+    Array.from({ length: REPLAY_DAYS + 1 }, (_, i) => i).reverse().map(i =>
+      `<span class="chip ${i === 0 ? "today" : ""} ${view.day === i ? "active" : ""}" data-day="${i}"><b>${esc(dayLabel(i))}</b></span>`).join("") +
+    `<span class="sep"></span><span class="chip ${view.day === "week" ? "active" : ""}" data-day="week">Ganze Woche</span>`;
+  const act = $("#dayNav .chip.active");
+  if (act) { const nav = $("#dayNav"); nav.scrollLeft = act.offsetLeft - (nav.clientWidth - act.offsetWidth) / 2; }
+}
+
+function renderStatus(msg, progress) {
+  renderHeader();
+  $("#catNav").innerHTML = "";
+  $("#content").innerHTML = `<div class="status"><div class="spinner"></div><div id="statusMsg">${esc(msg)}</div>
+    ${progress !== undefined ? `<div class="progress"><div id="progBar"></div></div>` : ""}</div>`;
+}
+function updateProgress(f) { const b = $("#progBar"); if (b) b.style.width = Math.round(f * 100) + "%"; }
+function renderError(msg) {
+  $("#catNav").innerHTML = "";
+  $("#content").innerHTML = `<div class="status"><p class="error">${esc(msg)}</p>
+    <button class="primary" onclick="load(true)">Erneut versuchen</button></div>`;
+}
+
+/* ---------- Kategorie-Reiter: Sprung + aktive Markierung ---------- */
+let spyLockUntil = 0;
+function headerOffset() { return $("header").getBoundingClientRect().height + 8; }
+function setActiveCat(id) {
+  let activeChip = null;
+  document.querySelectorAll("#catNav .chip").forEach(c => {
+    const on = c.dataset.cat === id;
+    c.classList.toggle("active", on);
+    if (on) activeChip = c;
+  });
+  if (activeChip) {
+    const nav = $("#catNav");
+    const left = activeChip.offsetLeft - (nav.clientWidth - activeChip.offsetWidth) / 2;
+    nav.scrollTo({ left: Math.max(0, left), behavior: "smooth" });
+  }
+}
+function spyCategories() {
+  if (Date.now() < spyLockUntil) return;
+  const sections = [...document.querySelectorAll("section.cat")];
+  if (!sections.length) return;
+  const limit = headerOffset() + 20;
+  let current = sections[0].id;
+  for (const s of sections) if (s.getBoundingClientRect().top <= limit) current = s.id;
+  setActiveCat(current);
+}
+$("#catNav").addEventListener("click", e => {
+  const a = e.target.closest("a[data-cat]"); if (!a) return;
+  e.preventDefault();
+  const sec = document.getElementById(a.dataset.cat); if (!sec) return;
+  setActiveCat(a.dataset.cat);
+  spyLockUntil = Date.now() + 1000;
+  window.scrollTo({ top: sec.getBoundingClientRect().top + window.scrollY - headerOffset(), behavior: "smooth" });
+});
+let spyRaf = 0;
+window.addEventListener("scroll", () => {
+  if (spyRaf) return;
+  spyRaf = requestAnimationFrame(() => { spyRaf = 0; spyCategories(); });
+}, { passive: true });
+
+/* ---------- Detailansicht ---------- */
+function openDetail(g) {
+  const a = g.rep, dlg = $("#detailDlg");
+  const meta = [typeLabel(a), a.dur ? a.dur + " Min." : "", a.year, a.country].filter(Boolean).map(esc).join(" · ");
+  const hero = imgUrl(g.img, true);
+  const rows = g.airings.map(x => {
+    const ch = channelById.get(x.ch), st = airState(x);
+    return `<li><span class="when">${esc(whenText(x))}–${fmtTime(x.end)}</span><span>${esc(ch.name)}</span>
+      ${platformsHtml(ch.on)}<span class="badge ${st.cls}">${st.txt}</span>
+      ${x.type === "tv" && (x.sub || x.episode) ? `<span class="ep">${x.season ? `S${x.season} ` : ""}${x.episode ? `E${x.episode}` : ""}${x.sub ? " · " + esc(x.sub) : ""}</span>` : ""}</li>`;
+  }).join("");
+  const q = encodeURIComponent(a.title + (a.type === "movie" && a.year ? " " + a.year : ""));
+  dlg.innerHTML = `
+    <div class="detail-hero" style="${hero ? `background-image:url('${hero}')` : ""}">
+      <button class="detail-close" aria-label="Schliessen" onclick="this.closest('dialog').close()">✕</button>
+    </div>
+    <div class="detail-body">
+      <h2>${esc(a.title)}</h2>
+      ${a.type === "tv" && a.sub ? `<div class="hint">${esc(a.sub)}</div>` : ""}
+      <div class="meta" style="margin:8px 0">${platformsHtml(g.plats)} <span>${meta}</span></div>
+      <div class="meta">${a.genres.map(x => `<span class="badge">${esc(x)}</span>`).join("")}
+        ${a.age ? `<span class="badge">${esc(a.age)}</span>` : ""}
+        ${g.rating ? `<span class="score ${scoreClass(g.rating)}">★ ${g.rating.toFixed(1)}</span>` : ""}</div>
+      <p class="overview">${esc(g.summary || "Keine Beschreibung verfügbar.")}</p>
+      ${a.directors.length ? `<div class="meta"><span>Regie: ${esc(a.directors.join(", "))}</span></div>` : ""}
+      ${a.actors.length ? `<div class="meta"><span>Mit: ${esc(a.actors.join(", "))}</span></div>` : ""}
+      <h4>${g.airings.length === 1 ? "Ausstrahlung" : `${g.airings.length} Ausstrahlungen`}</h4>
+      <ul class="airings">${rows}</ul>
+      <div class="links">
+        ${PLATFORMS.filter(p => g.plats.includes(p.key)).map(p => `<a class="icon-btn" href="${esc(p.url)}" target="_blank" rel="noopener">▶ ${esc(p.label)} öffnen</a>`).join("")}
+        <a class="icon-btn" href="https://www.imdb.com/find/?q=${q}" target="_blank" rel="noopener">IMDb</a>
+        <a class="icon-btn" href="https://www.youtube.com/results?search_query=${q}%20trailer" target="_blank" rel="noopener">🎬 Trailer</a>
+      </div>
+    </div>`;
+  dlg.showModal();
+}
+
+/* ---------- Einstellungen ---------- */
+function openSettings() {
+  $("#langSet").innerHTML = `<legend>Sender in diesen Sprachen laden</legend>` +
+    Object.entries(LANGS).map(([k, v]) => {
+      const n = CHANNELS.filter(c => c.lang === k).length;
+      return `<label><input type="checkbox" name="lang" value="${k}" ${settings.langs.includes(k) ? "checked" : ""}> ${v} <span class="hint">(${n})</span></label>`;
+    }).join("");
+  $("#settingsForm").hideShop.checked = !!settings.hideShop;
+  $("#settingsDlg").showModal();
+}
+$("#settingsForm").addEventListener("submit", () => {
+  const langs = [...document.querySelectorAll("#langSet input:checked")].map(i => i.value);
+  const langsChanged = langs.join() !== settings.langs.join();
+  settings = { ...settings, langs: langs.length ? langs : ["de"], hideShop: $("#settingsForm").hideShop.checked };
+  store.set(LS_SETTINGS, settings);
+  if (langsChanged) { dayData.clear(); load(); } else render();
+});
+$("#settingsCancel").onclick = () => $("#settingsDlg").close();
+$("#settingsBtn").onclick = openSettings;
+$("#reloadBtn").onclick = () => load(true);
+
+/* ---------- Filter-Events ---------- */
+$("#platformChips").addEventListener("click", e => {
+  const c = e.target.closest("[data-p]"); if (!c) return;
+  const k = c.dataset.p;
+  view.platform = (k === view.platform) ? "all" : k;
+  render();
+  window.scrollTo({ top: 0 });
+});
+$("#dayNav").addEventListener("click", e => {
+  const c = e.target.closest("[data-day]"); if (!c) return;
+  view.day = c.dataset.day === "week" ? "week" : Number(c.dataset.day);
+  window.scrollTo({ top: 0 });
+  load();
+});
+$("#typeSeg").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  view.type = b.dataset.v;
+  document.querySelectorAll("#typeSeg button").forEach(x => x.classList.toggle("active", x === b));
+  render();
+});
+$("#search").oninput = e => { view.q = e.target.value; render(); };
+$("#content").addEventListener("click", e => {
+  const c = e.target.closest(".card"); if (!c) return;
+  const g = buildGroups(filteredAirings()).find(x => x.key === c.dataset.key);
+  if (g) openDetail(g);
+});
+$("#detailDlg").addEventListener("click", e => { if (e.target === e.currentTarget) e.currentTarget.close(); });
+
+// Nach Mitternacht/05:00 oder nach längerer Pause beim Zurückkehren auffrischen
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && view.day === 0 && airings.length) {
+    const today = tvDay(0).key;
+    if (!dayData.has(today)) load(); else render();
+  }
+});
+
+load();
+</script>
+</body>
+</html>
